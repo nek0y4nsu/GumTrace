@@ -1,20 +1,33 @@
 #!/bin/bash
 
-ANDROID_NDK_HOME=/Users/lidongyooo/Library/Android/sdk/ndk/29.0.14206865
+set -euo pipefail
 
-# Check if ANDROID_NDK_HOME is set
-if [ -z "$ANDROID_NDK_HOME" ]; then
-    echo "Please set it to your Android NDK installation path."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -z "${ANDROID_NDK_HOME:-}" ]; then
+    for candidate in \
+        "$HOME/Library/Android/sdk/ndk/30.0.14904198" \
+        "$HOME/Library/Android/sdk/ndk/29.0.14206865" \
+        "$HOME/Library/Android/sdk/ndk/27.3.13750724"
+    do
+        if [ -d "$candidate" ]; then
+            ANDROID_NDK_HOME="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
+    echo "Please set ANDROID_NDK_HOME to your Android NDK installation path."
     exit 1
 fi
 
-echo "Building for Android (arm64-v8a)..."
+echo "Building for Android (arm64-v8a) with NDK: $ANDROID_NDK_HOME"
 
-rm -rf build_ios
-mkdir -p build_android
-cd build_android
+mkdir -p "$SCRIPT_DIR/build_android"
+cd "$SCRIPT_DIR/build_android"
 
-cmake .. \
+cmake "$SCRIPT_DIR" \
     -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI=arm64-v8a \
     -DANDROID_PLATFORM=android-24 \

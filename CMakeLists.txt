@@ -18,8 +18,10 @@ add_library(GumTrace SHARED
 if(ANDROID)
     message(STATUS "Configuring for Android")
 
+    set(ANDROID_SYSROOT_INCLUDE "${CMAKE_SYSROOT}/usr/include")
+
     target_include_directories(GumTrace SYSTEM PUBLIC .
-            /Users/lidongyooo/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include)
+            ${ANDROID_SYSROOT_INCLUDE})
 
     target_link_libraries(GumTrace PRIVATE ${CMAKE_SOURCE_DIR}/libs/FridaGum-Android-17.8.3-fix.a)
     target_link_libraries(GumTrace PRIVATE log dl m z)

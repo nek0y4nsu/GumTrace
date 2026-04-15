@@ -3,6 +3,26 @@
 //
 
 #include "FuncPrinter.h"
+#include <cstdio>
+
+namespace {
+const char *resolve_syscall_name(GumTrace *instance, uint64_t syscall_nr, char *fallback, size_t fallback_size) {
+    auto it = instance->svc_func_maps.find(syscall_nr);
+    if (it != instance->svc_func_maps.end() && !it->second.empty()) {
+        return it->second.c_str();
+    }
+
+    snprintf(fallback, fallback_size, "syscall_%llu", static_cast<unsigned long long>(syscall_nr));
+    return fallback;
+}
+
+void shift_syscall_wrapper_args(GumCpuContext *cpu_context) {
+    for (int i = 0; i < 7; i++) {
+        cpu_context->x[i] = cpu_context->x[i + 1];
+    }
+    cpu_context->x[7] = 0;
+}
+}
 
 const std::unordered_set<std::string> call_jni_methods = {
     "CallStaticObjectMethod", "CallStaticObjectMethodV", "CallStaticObjectMethodA",
@@ -95,7 +115,8 @@ const std::unordered_map<std::string, BeforeFuncConfig> func_configs = {
     {"pwrite64", {PARAMS_NUMBER_THREE, {}, {{HEX_INDEX_ONE, HEX_INDEX_TWO}}}},
     {"mknodat", {PARAMS_NUMBER_FOUR, {STR_INDEX_ONE}, {}}},
     {"mkdirat", {PARAMS_NUMBER_THREE, {STR_INDEX_ONE}, {}}},
-    {"newfstatat", {PARAMS_NUMBER_THREE, {STR_INDEX_ONE}, {}}},
+    {"fstatat", {PARAMS_NUMBER_FOUR, {STR_INDEX_ONE}, {}}},
+    {"newfstatat", {PARAMS_NUMBER_FOUR, {STR_INDEX_ONE}, {}}},
     {"fstat", {PARAMS_NUMBER_TWO, {}, {}}},
     {"stat", {PARAMS_NUMBER_TWO, {STR_INDEX_ZERO}, {}}},
     {"readlink", {PARAMS_NUMBER_THREE, {STR_INDEX_ZERO, STR_INDEX_ONE}, {}}},
@@ -250,15 +271,23 @@ void FuncPrinter::hexdump(int& buff_n, char *buff, uint64_t address, size_t coun
 }
 
 void FuncPrinter::syscall(FUNC_CONTEXT *func_context) {
-    func_context->info[func_context->info_n++] = '\n';
-
     auto *self = GumTrace::get_instance();
-    func_context->name = self->svc_func_maps[func_context->cpu_context.x[0]].c_str();
+    uint64_t syscall_nr = func_context->cpu_context.x[0];
+    static thread_local char fallback_name[32];
+
+    func_context->info_n = 0;
+    func_context->name = resolve_syscall_name(self, syscall_nr, fallback_name, sizeof(fallback_name));
+    shift_syscall_wrapper_args(&func_context->cpu_context);
     before(func_context);
 }
 
 
 void FuncPrinter::before(FUNC_CONTEXT *func_context) {
+    auto it = func_configs.find(func_context->name);
+    if (it != func_configs.end() && it->second.special_handler) {
+        return it->second.special_handler(func_context);
+    }
+
     Utils::auto_snprintf(func_context->info_n, func_context->info, "call func: %s", func_context->name);
 
     auto GumTrace = GumTrace::get_instance();
@@ -352,7 +381,6 @@ void FuncPrinter::before(FUNC_CONTEXT *func_context) {
     }
 #endif
 
-    auto it = func_configs.find(func_context->name);
     if (it == func_configs.end()) {
         params_join(func_context, 0);
         func_context->info[func_context->info_n++] = '\n';
@@ -361,10 +389,6 @@ void FuncPrinter::before(FUNC_CONTEXT *func_context) {
 
     const auto& config = it->second;
     params_join(func_context, config.params_number);
-
-    if (config.special_handler) {
-        return config.special_handler(func_context);
-    }
 
     for (int idx : config.string_indices) {
         Utils::auto_snprintf(func_context->info_n, func_context->info, "\nargs%d: ", idx);
